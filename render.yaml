@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: hookcatch
+    env: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: NODE_VERSION
+        value: 18.20.0
+      - key: DB_PATH
+        value: /var/data/hookcatch.db
+    # Disks require a paid instance type (Starter or above) — remove this
+    # block to run on the free plan, but the SQLite file will then be wiped
+    # on every redeploy (it still survives simple restarts/sleep-wake).
+    disk:
+      name: hookcatch-data
+      mountPath: /var/data
+      sizeGB: 1

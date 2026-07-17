@@ -1,0 +1,608 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Hookcatch — request inspector</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#0B0E11;
+    --panel:#12161B;
+    --panel-2:#161B21;
+    --border:#232B34;
+    --text:#D7DEE5;
+    --muted:#6B7785;
+    --accent:#5B9DFF;
+    --get:#4FD1A5;
+    --post:#5B9DFF;
+    --put:#F5C451;
+    --patch:#C792EA;
+    --delete:#FF6B6B;
+    --other:#8A97A6;
+    --mono: 'IBM Plex Mono', monospace;
+    --sans: 'Inter', sans-serif;
+  }
+  *{box-sizing:border-box;}
+  html,body{height:100%;}
+  body{
+    margin:0;
+    background:var(--bg);
+    color:var(--text);
+    font-family:var(--sans);
+    display:flex;
+    flex-direction:column;
+    overflow:hidden;
+  }
+  header{
+    display:flex;
+    align-items:center;
+    gap:16px;
+    padding:14px 20px;
+    border-bottom:1px solid var(--border);
+    background:var(--panel);
+    flex-shrink:0;
+  }
+  .brand{
+    font-family:var(--mono);
+    font-weight:600;
+    font-size:15px;
+    letter-spacing:0.02em;
+    color:var(--text);
+    display:flex;
+    align-items:center;
+    gap:8px;
+    flex-shrink:0;
+  }
+  .brand .dot{
+    width:8px;height:8px;border-radius:50%;
+    background:var(--get);
+    box-shadow:0 0 8px var(--get);
+    animation:pulse 2s ease-in-out infinite;
+  }
+  @keyframes pulse{
+    0%,100%{opacity:1;}
+    50%{opacity:0.35;}
+  }
+  .url-box{
+    flex:1;
+    display:flex;
+    align-items:center;
+    gap:8px;
+    background:var(--panel-2);
+    border:1px solid var(--border);
+    border-radius:6px;
+    padding:8px 12px;
+    font-family:var(--mono);
+    font-size:13px;
+    min-width:0;
+  }
+  .url-box span{
+    overflow:hidden;
+    text-overflow:ellipsis;
+    white-space:nowrap;
+    color:var(--accent);
+  }
+  .icon-btn, .btn{
+    background:transparent;
+    border:1px solid var(--border);
+    color:var(--muted);
+    border-radius:6px;
+    padding:7px 12px;
+    font-family:var(--sans);
+    font-size:13px;
+    font-weight:500;
+    cursor:pointer;
+    transition:all .15s ease;
+    white-space:nowrap;
+  }
+  .icon-btn:hover, .btn:hover{
+    border-color:var(--accent);
+    color:var(--text);
+  }
+  .btn.danger:hover{ border-color:var(--delete); color:var(--delete); }
+  .cors-toggle{
+    display:flex;
+    align-items:center;
+    gap:8px;
+    font-size:13px;
+    color:var(--muted);
+    flex-shrink:0;
+  }
+  .switch{
+    position:relative;
+    width:36px;height:20px;
+    flex-shrink:0;
+  }
+  .switch input{opacity:0;width:0;height:0;}
+  .slider{
+    position:absolute;top:0;left:0;right:0;bottom:0;
+    background:var(--border);
+    border-radius:20px;
+    cursor:pointer;
+    transition:.2s;
+  }
+  .slider:before{
+    content:"";
+    position:absolute;
+    width:14px;height:14px;
+    left:3px;top:3px;
+    background:var(--muted);
+    border-radius:50%;
+    transition:.2s;
+  }
+  input:checked + .slider{ background:rgba(79,209,165,0.2); }
+  input:checked + .slider:before{ background:var(--get); transform:translateX(16px); }
+
+  main{
+    flex:1;
+    display:flex;
+    min-height:0;
+  }
+  .sidebar{
+    width:340px;
+    flex-shrink:0;
+    border-right:1px solid var(--border);
+    display:flex;
+    flex-direction:column;
+    background:var(--panel);
+  }
+  .sidebar-header{
+    padding:12px 16px;
+    border-bottom:1px solid var(--border);
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    font-size:12px;
+    color:var(--muted);
+    font-family:var(--mono);
+    text-transform:uppercase;
+    letter-spacing:0.06em;
+  }
+  .req-list{
+    flex:1;
+    overflow-y:auto;
+  }
+  .req-item{
+    padding:11px 16px;
+    border-bottom:1px solid var(--border);
+    cursor:pointer;
+    display:flex;
+    flex-direction:column;
+    gap:4px;
+    transition:background .1s ease;
+  }
+  .req-item:hover{ background:var(--panel-2); }
+  .req-item.active{ background:var(--panel-2); box-shadow:inset 3px 0 0 var(--accent); }
+  .req-top{
+    display:flex;
+    align-items:center;
+    gap:8px;
+  }
+  .method-badge{
+    font-family:var(--mono);
+    font-weight:600;
+    font-size:11px;
+    padding:2px 6px;
+    border-radius:4px;
+    letter-spacing:0.02em;
+    flex-shrink:0;
+  }
+  .m-GET{ color:var(--get); background:rgba(79,209,165,0.12); }
+  .m-POST{ color:var(--post); background:rgba(91,157,255,0.12); }
+  .m-PUT{ color:var(--put); background:rgba(245,196,81,0.12); }
+  .m-PATCH{ color:var(--patch); background:rgba(199,146,234,0.12); }
+  .m-DELETE{ color:var(--delete); background:rgba(255,107,107,0.12); }
+  .m-OTHER{ color:var(--other); background:rgba(138,151,166,0.12); }
+  .req-path{
+    font-family:var(--mono);
+    font-size:12.5px;
+    color:var(--text);
+    overflow:hidden;
+    text-overflow:ellipsis;
+    white-space:nowrap;
+  }
+  .req-meta{
+    font-size:11px;
+    color:var(--muted);
+    font-family:var(--mono);
+  }
+  .empty-state{
+    flex:1;
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    justify-content:center;
+    color:var(--muted);
+    text-align:center;
+    padding:40px;
+    gap:10px;
+  }
+  .empty-state .cursor{
+    width:9px;height:16px;
+    background:var(--get);
+    animation:pulse 1.1s step-end infinite;
+  }
+  .empty-state p{
+    font-family:var(--mono);
+    font-size:13px;
+    margin:0;
+  }
+  .empty-state .sub{
+    font-family:var(--sans);
+    font-size:12px;
+    color:var(--muted);
+    max-width:260px;
+  }
+
+  .detail{
+    flex:1;
+    overflow-y:auto;
+    padding:24px 32px;
+  }
+  .detail-empty{
+    height:100%;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    color:var(--muted);
+    font-size:13px;
+    font-family:var(--mono);
+  }
+  .detail-header{
+    display:flex;
+    align-items:center;
+    gap:12px;
+    margin-bottom:20px;
+    flex-wrap:wrap;
+  }
+  .detail-header h2{
+    font-family:var(--mono);
+    font-size:18px;
+    margin:0;
+    color:var(--text);
+    font-weight:600;
+  }
+  .detail-time{
+    font-size:12px;
+    color:var(--muted);
+    font-family:var(--mono);
+  }
+  .section{
+    margin-bottom:22px;
+  }
+  .section-title{
+    font-size:11px;
+    text-transform:uppercase;
+    letter-spacing:0.08em;
+    color:var(--muted);
+    font-family:var(--mono);
+    margin-bottom:8px;
+    display:flex;
+    align-items:center;
+    gap:8px;
+  }
+  .section-title::after{
+    content:"";
+    flex:1;
+    height:1px;
+    background:var(--border);
+  }
+  table.kv{
+    width:100%;
+    border-collapse:collapse;
+    font-family:var(--mono);
+    font-size:12.5px;
+  }
+  table.kv tr{ border-bottom:1px solid var(--border); }
+  table.kv tr:last-child{ border-bottom:none; }
+  table.kv td{
+    padding:6px 0;
+    vertical-align:top;
+  }
+  table.kv td.k{
+    color:var(--accent);
+    width:220px;
+    padding-right:16px;
+    word-break:break-word;
+  }
+  table.kv td.v{
+    color:var(--text);
+    word-break:break-word;
+    white-space:pre-wrap;
+  }
+  pre.body{
+    background:var(--panel);
+    border:1px solid var(--border);
+    border-radius:8px;
+    padding:14px 16px;
+    font-family:var(--mono);
+    font-size:12.5px;
+    color:var(--text);
+    white-space:pre-wrap;
+    word-break:break-word;
+    margin:0;
+    max-height:400px;
+    overflow-y:auto;
+  }
+  .no-body{
+    color:var(--muted);
+    font-family:var(--mono);
+    font-size:12.5px;
+  }
+  ::-webkit-scrollbar{ width:9px; height:9px; }
+  ::-webkit-scrollbar-track{ background:transparent; }
+  ::-webkit-scrollbar-thumb{ background:var(--border); border-radius:5px; }
+  ::-webkit-scrollbar-thumb:hover{ background:var(--muted); }
+
+  .toast{
+    position:fixed;
+    bottom:20px;
+    left:50%;
+    transform:translateX(-50%) translateY(10px);
+    background:var(--panel-2);
+    border:1px solid var(--border);
+    color:var(--text);
+    padding:9px 16px;
+    border-radius:8px;
+    font-size:13px;
+    font-family:var(--sans);
+    opacity:0;
+    transition:all .2s ease;
+    pointer-events:none;
+    z-index:10;
+  }
+  .toast.show{ opacity:1; transform:translateX(-50%) translateY(0); }
+
+  @media (max-width:720px){
+    .sidebar{ width:220px; }
+    header{ flex-wrap:wrap; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="brand"><span class="dot"></span>hookcatch</div>
+  <div class="url-box">
+    <span id="endpointUrl">loading…</span>
+  </div>
+  <button class="icon-btn" id="copyBtn">Copy URL</button>
+  <label class="cors-toggle">
+    Add CORS headers
+    <span class="switch">
+      <input type="checkbox" id="corsToggle" checked>
+      <span class="slider"></span>
+    </span>
+  </label>
+  <button class="btn" id="exportBtn">Export</button>
+  <button class="btn danger" id="clearBtn">Clear</button>
+  <button class="btn" id="newBinBtn">New endpoint</button>
+</header>
+
+<main>
+  <div class="sidebar">
+    <div class="sidebar-header">
+      <span id="reqCount">0 requests</span>
+      <span id="binLabel"></span>
+    </div>
+    <div class="req-list" id="reqList"></div>
+  </div>
+  <div class="detail" id="detail">
+    <div class="detail-empty">Select a request to inspect it</div>
+  </div>
+</main>
+
+<div class="toast" id="toast"></div>
+
+<script>
+  let binId = null;
+  let requests = [];
+  let selectedId = null;
+  let pollTimer = null;
+
+  const endpointUrlEl = document.getElementById('endpointUrl');
+  const reqListEl = document.getElementById('reqList');
+  const reqCountEl = document.getElementById('reqCount');
+  const binLabelEl = document.getElementById('binLabel');
+  const detailEl = document.getElementById('detail');
+  const corsToggle = document.getElementById('corsToggle');
+  const toastEl = document.getElementById('toast');
+
+  function toast(msg){
+    toastEl.textContent = msg;
+    toastEl.classList.add('show');
+    setTimeout(() => toastEl.classList.remove('show'), 1600);
+  }
+
+  function endpointFor(id){
+    return `${window.location.origin}/in/${id}`;
+  }
+
+  async function init(){
+    const stored = localStorage.getItem('hookcatch_bin');
+    if (stored) {
+      binId = stored;
+    } else {
+      const res = await fetch('/api/new-bin');
+      const data = await res.json();
+      binId = data.binId;
+      localStorage.setItem('hookcatch_bin', binId);
+    }
+    endpointUrlEl.textContent = endpointFor(binId);
+    binLabelEl.textContent = binId;
+    await refresh();
+    pollTimer = setInterval(refresh, 2000);
+  }
+
+  async function refresh(){
+    try {
+      const res = await fetch(`/api/bins/${binId}`);
+      const data = await res.json();
+      requests = data.requests;
+      corsToggle.checked = data.cors;
+      renderList();
+      if (selectedId) renderDetail(requests.find(r => r.id === selectedId));
+    } catch (e) {
+      console.error('refresh failed', e);
+    }
+  }
+
+  function methodClass(m){
+    return ['GET','POST','PUT','PATCH','DELETE'].includes(m) ? `m-${m}` : 'm-OTHER';
+  }
+
+  function relTime(iso){
+    const diff = (Date.now() - new Date(iso).getTime()) / 1000;
+    if (diff < 5) return 'just now';
+    if (diff < 60) return `${Math.floor(diff)}s ago`;
+    if (diff < 3600) return `${Math.floor(diff/60)}m ago`;
+    if (diff < 86400) return `${Math.floor(diff/3600)}h ago`;
+    return new Date(iso).toLocaleString();
+  }
+
+  function renderList(){
+    reqCountEl.textContent = `${requests.length} request${requests.length === 1 ? '' : 's'}`;
+
+    if (requests.length === 0) {
+      reqListEl.innerHTML = '';
+      const empty = document.createElement('div');
+      empty.className = 'empty-state';
+      empty.innerHTML = `
+        <span class="cursor"></span>
+        <p>waiting for traffic</p>
+        <div class="sub">Send any HTTP request to your endpoint URL above — it'll show up here in real time.</div>
+      `;
+      reqListEl.appendChild(empty);
+      return;
+    }
+
+    reqListEl.innerHTML = requests.map(r => `
+      <div class="req-item ${r.id === selectedId ? 'active' : ''}" data-id="${r.id}">
+        <div class="req-top">
+          <span class="method-badge ${methodClass(r.method)}">${r.method}</span>
+          <span class="req-path">${escapeHtml(r.path)}</span>
+        </div>
+        <div class="req-meta">${relTime(r.timestamp)} · ${r.bodySize} bytes</div>
+      </div>
+    `).join('');
+
+    reqListEl.querySelectorAll('.req-item').forEach(el => {
+      el.addEventListener('click', () => {
+        selectedId = el.dataset.id;
+        renderList();
+        renderDetail(requests.find(r => r.id === selectedId));
+      });
+    });
+  }
+
+  function escapeHtml(str){
+    const d = document.createElement('div');
+    d.textContent = str ?? '';
+    return d.innerHTML;
+  }
+
+  function prettyBody(r){
+    if (!r.bodyText || r.bodySize === 0) return null;
+    if (r.contentType && r.contentType.includes('json')) {
+      try {
+        return JSON.stringify(JSON.parse(r.bodyText), null, 2);
+      } catch (e) {
+        return r.bodyText;
+      }
+    }
+    return r.bodyText;
+  }
+
+  function renderDetail(r){
+    if (!r) {
+      detailEl.innerHTML = '<div class="detail-empty">Select a request to inspect it</div>';
+      return;
+    }
+
+    const queryEntries = Object.entries(r.query || {});
+    const headerEntries = Object.entries(r.headers || {});
+    const body = prettyBody(r);
+
+    detailEl.innerHTML = `
+      <div class="detail-header">
+        <span class="method-badge ${methodClass(r.method)}" style="font-size:13px;padding:4px 10px;">${r.method}</span>
+        <h2>${escapeHtml(r.path)}</h2>
+        <span class="detail-time">${new Date(r.timestamp).toLocaleString()}</span>
+      </div>
+
+      <div class="section">
+        <div class="section-title">Overview</div>
+        <table class="kv">
+          <tr><td class="k">Source IP</td><td class="v">${escapeHtml(r.ip || '—')}</td></tr>
+          <tr><td class="k">Content type</td><td class="v">${escapeHtml(r.contentType || '—')}</td></tr>
+          <tr><td class="k">Body size</td><td class="v">${r.bodySize} bytes</td></tr>
+        </table>
+      </div>
+
+      ${queryEntries.length ? `
+      <div class="section">
+        <div class="section-title">Query params</div>
+        <table class="kv">
+          ${queryEntries.map(([k,v]) => `<tr><td class="k">${escapeHtml(k)}</td><td class="v">${escapeHtml(typeof v === 'string' ? v : JSON.stringify(v))}</td></tr>`).join('')}
+        </table>
+      </div>` : ''}
+
+      <div class="section">
+        <div class="section-title">Headers</div>
+        <table class="kv">
+          ${headerEntries.map(([k,v]) => `<tr><td class="k">${escapeHtml(k)}</td><td class="v">${escapeHtml(v)}</td></tr>`).join('')}
+        </table>
+      </div>
+
+      <div class="section">
+        <div class="section-title">Body</div>
+        ${body ? `<pre class="body">${escapeHtml(body)}</pre>` : '<div class="no-body">No body</div>'}
+      </div>
+    `;
+  }
+
+  document.getElementById('copyBtn').addEventListener('click', () => {
+    navigator.clipboard.writeText(endpointFor(binId)).then(() => toast('Endpoint URL copied'));
+  });
+
+  document.getElementById('exportBtn').addEventListener('click', () => {
+    window.location.href = `/api/bins/${binId}/export`;
+    toast('Downloading export…');
+  });
+
+  document.getElementById('clearBtn').addEventListener('click', async () => {
+    await fetch(`/api/bins/${binId}/requests`, { method: 'DELETE' });
+    selectedId = null;
+    await refresh();
+    renderDetail(null);
+    toast('Requests cleared');
+  });
+
+  document.getElementById('newBinBtn').addEventListener('click', async () => {
+    const res = await fetch('/api/new-bin');
+    const data = await res.json();
+    binId = data.binId;
+    localStorage.setItem('hookcatch_bin', binId);
+    endpointUrlEl.textContent = endpointFor(binId);
+    binLabelEl.textContent = binId;
+    selectedId = null;
+    await refresh();
+    renderDetail(null);
+    toast('New endpoint created');
+  });
+
+  corsToggle.addEventListener('change', async () => {
+    await fetch(`/api/bins/${binId}/cors`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ enabled: corsToggle.checked })
+    });
+    toast(corsToggle.checked ? 'CORS headers enabled' : 'CORS headers disabled');
+  });
+
+  init();
+</script>
+</body>
+</html>
