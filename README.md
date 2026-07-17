@@ -14,10 +14,11 @@ to responses.
 - `POST /api/bins/:binId/cors` — toggle CORS headers `{ "enabled": true|false }`
 - `DELETE /api/bins/:binId/requests` — clear the log
 
-Storage is **SQLite** (via `better-sqlite3`), written to the file at
-`DB_PATH` (defaults to `./data/hookcatch.db`). Each bin keeps its most
-recent 300 requests. There's also an **Export** button in the dashboard
-that downloads the full log for a bin as a JSON file at any time.
+Storage is **plain JSON files on disk** — one file per bin, written to
+`DATA_DIR` (defaults to `./data`). No native/compiled dependencies, so
+there's nothing to break across Node versions or platforms. Each bin
+keeps its most recent 300 requests. There's also an **Export** button in
+the dashboard that downloads the full log for a bin as JSON at any time.
 
 ### About persistence on Render specifically
 
@@ -25,17 +26,24 @@ that downloads the full log for a bin as a JSON file at any time.
   survives normal restarts (crashes, sleep/wake on the free tier) but
   gets wiped on every new deploy.
 - To survive redeploys too, attach a **Render Disk** (Starter plan or
-  above) and point `DB_PATH` at a file inside its mount path. The
-  included `render.yaml` already does this: it mounts a 1GB disk at
-  `/var/data` and sets `DB_PATH=/var/data/hookcatch.db`.
+  above) and point `DATA_DIR` at its mount path. The included
+  `render.yaml` already does this: it mounts a 1GB disk at `/var/data`
+  and sets `DATA_DIR=/var/data`.
 - On the **free plan** (no disks), just delete the `disk:` block from
   `render.yaml` — your data will still survive normal restarts, just not
   redeploys. Use the Export button before redeploying if you want to keep
   a copy.
-- If you'd rather use a real hosted database (e.g. because you're
-  scaling to multiple instances), swap `db.js` for Postgres — Render's
-  managed Postgres works well here and Render's free Postgres tier is
-  time-limited, so check current pricing before committing.
+- If you outgrow single-file-per-bin JSON (heavy traffic, multiple
+  instances), swap `db.js` for a real database — Render's managed
+  Postgres works well here; its free tier is time-limited, so check
+  current pricing before committing.
+
+### Node version
+
+`package.json` pins `"node": "20.x"` and `render.yaml` sets
+`NODE_VERSION=20.18.0`. This isn't just tidiness — leaving the engines
+range open (e.g. `>=18.0.0`) let Render pick whatever its latest
+available Node was, which is how the original build broke.
 
 ## Run locally
 

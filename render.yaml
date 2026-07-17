@@ -7,9 +7,9 @@ services:
     startCommand: npm start
     envVars:
       - key: NODE_VERSION
-        value: 18.20.0
-      - key: DB_PATH
-        value: /var/data/hookcatch.db
+        value: 20.18.0
+      - key: DATA_DIR
+        value: /var/data
     # Disks require a paid instance type (Starter or above) — remove this
     # block to run on the free plan, but the SQLite file will then be wiped
     # on every redeploy (it still survives simple restarts/sleep-wake).

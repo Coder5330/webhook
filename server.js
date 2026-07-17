@@ -106,5 +106,5 @@ app.get('/api/bins/:binId/export', (req, res) => {
 
 app.listen(PORT, () => {
   console.log(`Webhook catcher listening on port ${PORT}`);
-  console.log(`Persisting requests to ${db.DB_PATH}`);
+  console.log(`Persisting requests to ${db.DATA_DIR}`);
 });

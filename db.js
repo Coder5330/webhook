@@ -1,120 +1,77 @@
 const path = require('path');
 const fs = require('fs');
-const Database = require('better-sqlite3');
 
-// DB_PATH lets you point this at a Render persistent disk (e.g. /var/data/hookcatch.db).
-// Defaults to a local file next to the app, which works fine for local dev but is
-// wiped on every Render redeploy unless a disk is mounted there (see README).
-const DB_PATH = process.env.DB_PATH || path.join(__dirname, 'data', 'hookcatch.db');
+// DATA_DIR lets you point this at a Render persistent disk (e.g. /var/data).
+// Defaults to a local folder next to the app, which works fine for local dev
+// but is wiped on every Render redeploy unless a disk is mounted there
+// (see README). Plain JSON files on disk — no native compilation, nothing
+// to break across Node versions.
+const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, 'data');
+const BINS_DIR = path.join(DATA_DIR, 'bins');
 
-fs.mkdirSync(path.dirname(DB_PATH), { recursive: true });
-
-const db = new Database(DB_PATH);
-db.pragma('journal_mode = WAL');
-
-db.exec(`
-  CREATE TABLE IF NOT EXISTS bins (
-    id TEXT PRIMARY KEY,
-    cors INTEGER NOT NULL DEFAULT 1,
-    created_at TEXT NOT NULL
-  );
-
-  CREATE TABLE IF NOT EXISTS requests (
-    id TEXT PRIMARY KEY,
-    bin_id TEXT NOT NULL,
-    method TEXT,
-    path TEXT,
-    query TEXT,
-    headers TEXT,
-    ip TEXT,
-    content_type TEXT,
-    body_text TEXT,
-    body_base64 TEXT,
-    body_size INTEGER,
-    timestamp TEXT NOT NULL
-  );
-
-  CREATE INDEX IF NOT EXISTS idx_requests_bin_time
-    ON requests (bin_id, timestamp DESC);
-`);
+fs.mkdirSync(BINS_DIR, { recursive: true });
 
 const MAX_REQUESTS_PER_BIN = 300;
 
-const stmts = {
-  getBin: db.prepare('SELECT * FROM bins WHERE id = ?'),
-  insertBin: db.prepare('INSERT INTO bins (id, cors, created_at) VALUES (?, ?, ?)'),
-  setCors: db.prepare('UPDATE bins SET cors = ? WHERE id = ?'),
+function binPath(binId) {
+  // binId is always our own generated short hex id, but guard against
+  // path traversal regardless since it comes from the URL.
+  const safe = String(binId).replace(/[^a-zA-Z0-9_-]/g, '');
+  return path.join(BINS_DIR, `${safe}.json`);
+}
 
-  insertRequest: db.prepare(`
-    INSERT INTO requests
-      (id, bin_id, method, path, query, headers, ip, content_type, body_text, body_base64, body_size, timestamp)
-    VALUES (@id, @bin_id, @method, @path, @query, @headers, @ip, @content_type, @body_text, @body_base64, @body_size, @timestamp)
-  `),
-  getRequests: db.prepare(`
-    SELECT * FROM requests WHERE bin_id = ? ORDER BY timestamp DESC LIMIT ?
-  `),
-  countRequests: db.prepare('SELECT COUNT(*) AS n FROM requests WHERE bin_id = ?'),
-  pruneRequests: db.prepare(`
-    DELETE FROM requests WHERE bin_id = ? AND id NOT IN (
-      SELECT id FROM requests WHERE bin_id = ? ORDER BY timestamp DESC LIMIT ?
-    )
-  `),
-  clearRequests: db.prepare('DELETE FROM requests WHERE bin_id = ?'),
-};
+function readBinFile(binId) {
+  const file = binPath(binId);
+  if (!fs.existsSync(file)) return null;
+  try {
+    const raw = fs.readFileSync(file, 'utf8');
+    return JSON.parse(raw);
+  } catch (e) {
+    console.error(`Failed to read/parse bin ${binId}:`, e.message);
+    return null;
+  }
+}
+
+function writeBinFile(binId, data) {
+  const file = binPath(binId);
+  const tmp = `${file}.tmp-${process.pid}-${Date.now()}`;
+  fs.writeFileSync(tmp, JSON.stringify(data));
+  fs.renameSync(tmp, file); // atomic on same filesystem
+}
 
 function getOrCreateBin(binId) {
-  let bin = stmts.getBin.get(binId);
+  let bin = readBinFile(binId);
   if (!bin) {
-    const createdAt = new Date().toISOString();
-    stmts.insertBin.run(binId, 1, createdAt);
-    bin = { id: binId, cors: 1, created_at: createdAt };
+    bin = { id: binId, cors: 1, created_at: new Date().toISOString(), requests: [] };
+    writeBinFile(binId, bin);
   }
   return bin;
 }
 
 function setCors(binId, enabled) {
-  getOrCreateBin(binId);
-  stmts.setCors.run(enabled ? 1 : 0, binId);
+  const bin = getOrCreateBin(binId);
+  bin.cors = enabled ? 1 : 0;
+  writeBinFile(binId, bin);
 }
 
 function saveRequest(binId, entry) {
-  getOrCreateBin(binId);
-  stmts.insertRequest.run({
-    id: entry.id,
-    bin_id: binId,
-    method: entry.method,
-    path: entry.path,
-    query: JSON.stringify(entry.query || {}),
-    headers: JSON.stringify(entry.headers || {}),
-    ip: entry.ip,
-    content_type: entry.contentType,
-    body_text: entry.bodyText,
-    body_base64: entry.bodyBase64,
-    body_size: entry.bodySize,
-    timestamp: entry.timestamp,
-  });
-  stmts.pruneRequests.run(binId, binId, MAX_REQUESTS_PER_BIN);
+  const bin = getOrCreateBin(binId);
+  bin.requests.unshift(entry);
+  if (bin.requests.length > MAX_REQUESTS_PER_BIN) {
+    bin.requests = bin.requests.slice(0, MAX_REQUESTS_PER_BIN);
+  }
+  writeBinFile(binId, bin);
 }
 
 function getRequests(binId, limit = MAX_REQUESTS_PER_BIN) {
-  const rows = stmts.getRequests.all(binId, limit);
-  return rows.map(row => ({
-    id: row.id,
-    method: row.method,
-    path: row.path,
-    query: JSON.parse(row.query || '{}'),
-    headers: JSON.parse(row.headers || '{}'),
-    ip: row.ip,
-    contentType: row.content_type,
-    bodyText: row.body_text,
-    bodyBase64: row.body_base64,
-    bodySize: row.body_size,
-    timestamp: row.timestamp,
-  }));
+  const bin = getOrCreateBin(binId);
+  return bin.requests.slice(0, limit);
 }
 
 function clearRequests(binId) {
-  stmts.clearRequests.run(binId);
+  const bin = getOrCreateBin(binId);
+  bin.requests = [];
+  writeBinFile(binId, bin);
 }
 
 module.exports = {
@@ -123,5 +80,5 @@ module.exports = {
   saveRequest,
   getRequests,
   clearRequests,
-  DB_PATH,
+  DATA_DIR,
 };
