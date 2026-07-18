@@ -1,19 +1,15 @@
 services:
   - type: web
     name: hookcatch
-    env: node
+    env: python
     plan: free
-    buildCommand: npm install
-    startCommand: npm start
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn app:app --workers 2 --bind 0.0.0.0:$PORT
     envVars:
-      - key: NODE_VERSION
-        value: 20.18.0
-      - key: DATA_DIR
-        value: /var/data
-    # Disks require a paid instance type (Starter or above) — remove this
-    # block to run on the free plan, but the SQLite file will then be wiped
-    # on every redeploy (it still survives simple restarts/sleep-wake).
-    disk:
-      name: hookcatch-data
-      mountPath: /var/data
-      sizeGB: 1
+      - key: PYTHON_VERSION
+        value: 3.12.4
+      # Point this to your Neon database connection string.
+      # Get it from https://console.neon.tech/ → your project → Connection string
+      # Format: postgresql://user:password@host/database
+      - key: DATABASE_URL
+        value: # paste your Neon connection string here

@@ -14,42 +14,36 @@ to responses.
 - `POST /api/bins/:binId/cors` — toggle CORS headers `{ "enabled": true|false }`
 - `DELETE /api/bins/:binId/requests` — clear the log
 
-Storage is **plain JSON files on disk** — one file per bin, written to
-`DATA_DIR` (defaults to `./data`). No native/compiled dependencies, so
-there's nothing to break across Node versions or platforms. Each bin
-keeps its most recent 300 requests. There's also an **Export** button in
-the dashboard that downloads the full log for a bin as JSON at any time.
+This is a **Flask** app (`app.py`). Storage is a **relational database**,
+with two tables (`bins`, `requests`). Each bin keeps its most recent 300
+requests. There's also an **Export** button in the dashboard that
+downloads the full log for a bin as JSON at any time.
 
 ### About persistence on Render specifically
 
-- A plain web service on Render has an **ephemeral filesystem** — it
-  survives normal restarts (crashes, sleep/wake on the free tier) but
-  gets wiped on every new deploy.
-- To survive redeploys too, attach a **Render Disk** (Starter plan or
-  above) and point `DATA_DIR` at its mount path. The included
-  `render.yaml` already does this: it mounts a 1GB disk at `/var/data`
-  and sets `DATA_DIR=/var/data`.
-- On the **free plan** (no disks), just delete the `disk:` block from
-  `render.yaml` — your data will still survive normal restarts, just not
-  redeploys. Use the Export button before redeploying if you want to keep
-  a copy.
-- If you outgrow single-file-per-bin JSON (heavy traffic, multiple
-  instances), swap `db.js` for a real database — Render's managed
-  Postgres works well here; its free tier is time-limited, so check
-  current pricing before committing.
+Storage backend is chosen at runtime by the `DATABASE_URL` env var:
 
-### Node version
+- **`DATABASE_URL` set → Postgres.** This is the default in production
+  (`render.yaml` provisions a managed Postgres database and wires its
+  connection string into `DATABASE_URL`). Data lives in Postgres, so it
+  **survives redeploys and free-tier sleep/wake** — this is the fix for
+  the "my data disappears" problem that a plain filesystem had.
+- **`DATABASE_URL` unset → SQLite** at `DATA_DIR/database.db` (defaults
+  to `./database.db`). Zero setup, ideal for local dev. Note: a SQLite
+  file on a plain Render web service is ephemeral and gets wiped on
+  redeploy — which is exactly why production uses Postgres instead.
 
-`package.json` pins `"node": "20.x"` and `render.yaml` sets
-`NODE_VERSION=20.18.0`. This isn't just tidiness — leaving the engines
-range open (e.g. `>=18.0.0`) let Render pick whatever its latest
-available Node was, which is how the original build broke.
+> **Render free Postgres caveat:** Render's free Postgres instances are
+> time-limited (they expire after ~30 days). For a permanently-free
+> option, point `DATABASE_URL` at Neon or Supabase instead — the app
+> works with any standard Postgres connection string.
 
 ## Run locally
 
 ```bash
-npm install
-npm start
+python3 -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+python app.py     # uses SQLite unless DATABASE_URL is set
 ```
 
 Then open http://localhost:3000 — it'll hand you a unique endpoint URL
@@ -65,9 +59,11 @@ It'll show up in the dashboard within ~2 seconds.
 
 1. Push this folder to a GitHub repo.
 2. On Render: **New > Web Service**, connect the repo.
-3. Render should auto-detect the included `render.yaml` — otherwise set:
-   - Build command: `npm install`
-   - Start command: `npm start`
+3. Render should auto-detect the included `render.yaml` (a Blueprint that
+   provisions both the web service and the Postgres database) — otherwise set:
+   - Build command: `pip install -r requirements.txt`
+   - Start command: `gunicorn app:app --workers 2 --bind 0.0.0.0:$PORT`
+   - and add a Postgres database, wiring its connection string into `DATABASE_URL`.
 4. Deploy. Your dashboard will be live at the Render URL, and your
    catch-all endpoint will be `https://<your-app>.onrender.com/in/<binId>`.
 
