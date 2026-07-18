@@ -42,7 +42,12 @@ def connect():
         import psycopg
         from psycopg.rows import dict_row
 
-        return psycopg.connect(DATABASE_URL, row_factory=dict_row)
+        try:
+            conn = psycopg.connect(DATABASE_URL, row_factory=dict_row)
+            return conn
+        except Exception as e:
+            print(f"✗ Postgres connection failed: {e}")
+            raise
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
@@ -98,6 +103,9 @@ def init_db():
         for stmt in statements:
             conn.execute(stmt)
         conn.commit()
+        print(f"✓ Database initialized ({('Postgres' if IS_PG else 'SQLite')})")
+    except Exception as e:
+        print(f"✗ Database init failed: {e}")
     finally:
         conn.close()
 
@@ -319,7 +327,7 @@ init_db()
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 3000))
-    print(f"Webhook catcher listening on port {port}")
-    print(f"Storage: {'Postgres' if IS_PG else 'SQLite (' + DB_PATH + ')'}")
-    print("Ready to capture webhooks... 🚀")
+    backend = "Postgres (Neon)" if IS_PG else f"SQLite ({DB_PATH})"
+    print(f"\n📦 Storage backend: {backend}")
+    print(f"🚀 Listening on port {port}\n")
     app.run(host="0.0.0.0", port=port)
