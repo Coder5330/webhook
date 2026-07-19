@@ -46,7 +46,7 @@ def connect():
             conn = psycopg.connect(DATABASE_URL, row_factory=dict_row)
             return conn
         except Exception as e:
-            print(f"✗ Postgres connection failed: {e}")
+            print(f"✗ Postgres connection failed: {e}", flush=True)
             raise
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
@@ -103,9 +103,9 @@ def init_db():
         for stmt in statements:
             conn.execute(stmt)
         conn.commit()
-        print(f"✓ Database initialized ({('Postgres' if IS_PG else 'SQLite')})")
+        print(f"✓ Database initialized ({('Postgres' if IS_PG else 'SQLite')})", flush=True)
     except Exception as e:
-        print(f"✗ Database init failed: {e}")
+        print(f"✗ Database init failed: {e}", flush=True)
     finally:
         conn.close()
 
@@ -323,11 +323,11 @@ def export_bin(bin_id):
     return resp
 
 
+_backend = "Postgres" if IS_PG else f"SQLite ({DB_PATH})"
+print(f"\n📦 Storage backend: {_backend}", flush=True)
 init_db()
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 3000))
-    backend = "Postgres (Neon)" if IS_PG else f"SQLite ({DB_PATH})"
-    print(f"\n📦 Storage backend: {backend}")
-    print(f"🚀 Listening on port {port}\n")
+    print(f"🚀 Listening on port {port}\n", flush=True)
     app.run(host="0.0.0.0", port=port)
